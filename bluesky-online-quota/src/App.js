@@ -373,7 +373,13 @@ export default function App() {
     setAiRecommendation(null);
     setShowAiQuoteModal(true);
   };
-
+  // 🌐 網路投保簡易試算版：頁面一載入就自動彈出AI快速報價，
+  // 引導不熟悉表單的一般客戶完成問答（客戶仍可按右上角✕自行關閉、改用表單手動填寫）。
+  useEffect(() => {
+    openAiQuoteModal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  
   const generateAiRecommendation = (answers) => {
     const wantText = answers.coverageWanted || "";
     const budgetText = answers.budget || "";
