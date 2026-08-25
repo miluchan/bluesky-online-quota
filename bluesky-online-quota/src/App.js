@@ -37,10 +37,9 @@ document.documentElement.lang = "zh-TW";
 // ⚡ 初始化您的 Supabase 雲端專案連線
 // 🌐 這是「網路投保」專用的新資料庫，請改成您新建立的 Supabase 專案 URL / anon key
 // （目前先沿用舊專案設定當佔位，正式使用前務必替換，否則會讀到內部業務員系統的舊資料庫）
-const SUPABASE_URL = "https://YOUR-NEW-PROJECT-REF.supabase.co";
-const SUPABASE_KEY = "YOUR-NEW-PROJECT-ANON-KEY";
+const SUPABASE_URL = "https://gdkpjnprlwvsnjxjgouw.supabase.co";
+const SUPABASE_KEY = "sb_publishable__0EKAJuODhxIZ6fFoef5Jw_a_Oi7Bbe";
 const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
-
 // 後端規則引擎
 const INSURANCE_RATE_ENGINE = {
   versionCode: "V2026_GOLDEN",
