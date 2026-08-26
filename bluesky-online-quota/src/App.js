@@ -40,6 +40,7 @@ document.documentElement.lang = "zh-TW";
 const SUPABASE_URL = "https://gdkpjnprlwvsnjxjgouw.supabase.co";
 const SUPABASE_KEY = "sb_publishable__0EKAJuODhxIZ6fFoef5Jw_a_Oi7Bbe";
 const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
+
 // 後端規則引擎
 const INSURANCE_RATE_ENGINE = {
   versionCode: "V2026_GOLDEN",
@@ -273,13 +274,118 @@ export default function App() {
   const [cardVerified, setCardVerified] = useState(false);
   const [cardVerifiedAt, setCardVerifiedAt] = useState(null);
 
+  // ================================================================
+  // 🌐 網路投保簡易試算版：報價留存／我要投保／繳費流程 相關狀態
+  // ================================================================
+  const [showQuoteContentModal, setShowQuoteContentModal] = useState(false);
+  const [savedQuoteId, setSavedQuoteId] = useState("");
+  const [showApplyInfoModal, setShowApplyInfoModal] = useState(false);
+  const [showPaymentFlowModal, setShowPaymentFlowModal] = useState(false);
+  const [showPaymentNoticeModal, setShowPaymentNoticeModal] = useState(false);
+  const [showPolicyActiveModal, setShowPolicyActiveModal] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState(""); // "card" | "jkopay" | "bank"
+  const [payCardNumber, setPayCardNumber] = useState("");
+  const [payCardExpiry, setPayCardExpiry] = useState("");
+  const [payCardCvv, setPayCardCvv] = useState("");
+  const [payBankCode, setPayBankCode] = useState("");
+  const [payBankAccount, setPayBankAccount] = useState("");
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+
+  const handlePayCardNumberChange = (e) => {
+    const digits = e.target.value.replace(/\D/g, "").slice(0, 16);
+    const formatted = digits.replace(/(.{4})/g, "$1 ").trim();
+    setPayCardNumber(formatted);
+  };
+  const handlePayCardExpiryChange = (e) => {
+    let digits = e.target.value.replace(/\D/g, "").slice(0, 6);
+    if (digits.length > 2) digits = digits.slice(0, 2) + "/" + digits.slice(2);
+    setPayCardExpiry(digits);
+  };
+  const handlePayBankAccountChange = (e) => {
+    setPayBankAccount(e.target.value.replace(/\D/g, "").slice(0, 14));
+  };
+  const handlePayBankCodeChange = (e) => {
+    setPayBankCode(e.target.value.replace(/\D/g, "").slice(0, 3));
+  };
+
+  // 「我要投保」流程：先確認姓名／車號／電話，通過後開啟繳費流程視窗
+  const openApplyInfoModal = () => {
+    setShowApplyInfoModal(true);
+  };
+  const confirmApplyInfoAndProceed = () => {
+    if (!clientName || !carNumber || !phone) {
+      alert("⚠️ 姓名、車號、聯絡電話都是必填，請確認後再繼續。");
+      return;
+    }
+    setShowApplyInfoModal(false);
+    setOtpVerified(false);
+    setOtpPhase("send");
+    setOtpInput("");
+    setPaymentMethod("");
+    setPayCardNumber("");
+    setPayCardExpiry("");
+    setPayCardCvv("");
+    setPayBankCode("");
+    setPayBankAccount("");
+    setShowPaymentFlowModal(true);
+  };
+
+  // 模擬繳費：驗證各繳費方式欄位是否填妥，成功後彈出保單生效說明
+  const handleConfirmPayment = () => {
+    if (!otpVerified) {
+      alert("⚠️ 請先完成OTP身分驗證，才能進行繳費。");
+      return;
+    }
+    if (!paymentMethod) {
+      alert("⚠️ 請選擇繳費方式。");
+      return;
+    }
+    if (paymentMethod === "card") {
+      const digits = payCardNumber.replace(/\s/g, "");
+      if (digits.length !== 16) {
+        alert("⚠️ 請輸入完整16碼信用卡卡號。");
+        return;
+      }
+      if (!/^\d{2}\/\d{4}$/.test(payCardExpiry)) {
+        alert("⚠️ 有效期限請輸入 MM/YYYY 格式。");
+        return;
+      }
+      if (payCardCvv.length !== 3) {
+        alert("⚠️ 請輸入卡片背面末3碼。");
+        return;
+      }
+    }
+    if (paymentMethod === "bank") {
+      if (payBankCode.length !== 3) {
+        alert("⚠️ 請輸入3碼銀行代碼。");
+        return;
+      }
+      if (payBankAccount.length !== 14) {
+        alert("⚠️ 請輸入14碼銀行帳號。");
+        return;
+      }
+    }
+    setPaymentProcessing(true);
+    // 🧪 先用模擬方式完成繳費，之後串接真實金流時，這裡改成呼叫金流API
+    setTimeout(() => {
+      setPaymentProcessing(false);
+      setShowPaymentFlowModal(false);
+      setShowPolicyActiveModal(true);
+    }, 1200);
+  };
+
+  const closePolicyActiveModal = () => {
+    setShowPolicyActiveModal(false);
+    window.location.href = "https://bluesky-website-delta.vercel.app";
+  };
+
   const sendOtpCode = () => {
     const code = String(Math.floor(100000 + Math.random() * 900000));
     setOtpCode(code);
     setOtpPhase("verify");
     alert(
       "📱（模擬簡訊發送）驗證碼已發送至 " +
-        (activeSignRecord?.phone || "客戶手機") +
+        (phone || "您填寫的手機號碼") +
         "\n\n測試用驗證碼：" +
         code
     );
@@ -289,7 +395,7 @@ export default function App() {
     if (otpInput === otpCode) {
       setOtpVerified(true);
       setOtpVerifiedAt(new Date().toISOString());
-      alert("✅ OTP 身分驗證成功！現在可以送出簽名確認書。");
+      alert("✅ OTP 身分驗證成功！現在可以進行繳費。");
       setShowOtpModal(false);
       setOtpPhase("send");
       setOtpInput("");
@@ -373,12 +479,13 @@ export default function App() {
     setAiRecommendation(null);
     setShowAiQuoteModal(true);
   };
+
   // 🌐 網路投保簡易試算版：頁面一載入就自動彈出AI快速報價，
   // 引導不熟悉表單的一般客戶完成問答（客戶仍可按右上角✕自行關閉、改用表單手動填寫）。
   useEffect(() => {
     openAiQuoteModal();
   }, []);
-  
+
   const generateAiRecommendation = (answers) => {
     const wantText = answers.coverageWanted || "";
     const budgetText = answers.budget || "";
@@ -1420,128 +1527,107 @@ export default function App() {
   };
 
   // 🚀 2. 精算並儲存報價單 (💡 修正問題 5：跨日期偵測流水序號強制從 00001 重頭開始)
-  const handleSave = async () => {
+  const persistQuoteRecord = async () => {
     if (!phone) {
       alert("⚠️ 行動電話為必填欄位，請填寫後再試算並儲存報價單。");
-      return;
+      return null;
     }
     if (!clientName || !carNumber) {
       alert("請填寫姓名與車號！");
-      return;
+      return null;
     }
-    try {
-      const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-      const prefix = "Q" + todayStr;
-      const nextSerial =
-        historyQuotes.filter((q) => q.quoteId.startsWith(prefix)).length + 1;
-      const qid = prefix + String(nextSerial).padStart(5, "0");
-      const fileName = qid + "_" + clientName + ".pdf";
+    const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    // 🌐 網路投保簡易試算版：改用「日期＋毫秒時間戳」產生單號，
+    // 不再依賴只在同一個瀏覽器session才有資料的 historyQuotes 計數，
+    // 避免不同客戶同一天各自儲存時，單號互相撞號、覆蓋彼此資料。
+    const uniqueSuffix = Date.now().toString(36).toUpperCase().slice(-6);
+    const qid = "Q" + todayStr + "-" + uniqueSuffix;
 
-      const coverageItems = [
-        { code: "21", name: "強制責任保險", amount: compulsoryPremium },
-      ];
-      if (hasHull)
-        coverageItems.push({
-          code: hullType.substring(0, 2),
-          name: `車體損失險(${hullType})`,
-          amount: hullPremium,
-        });
-      if (hasTheft)
-        coverageItems.push({
-          code: "11",
-          name: "竊盜損失險",
-          amount: theftPremium,
-        });
-      if (hasLiability) {
-        coverageItems.push({
-          code: "31",
-          name: `第三人體傷險(${liabilityCoverage})`,
-          amount: liabilityPremiumInjury,
-        });
-        coverageItems.push({
-          code: "32",
-          name: `第三人財損險(${liabilityProperty})`,
-          amount: liabilityPremiumProperty,
-        });
-      }
-      if (hasExcess)
-        coverageItems.push({
-          code: "34",
-          name: `第三人超額險(${excessLimit})`,
-          amount: excessPremium,
-        });
-      if (hasPassenger)
-        coverageItems.push({
-          code: "54",
-          name: "乘客責任險",
-          amount: passengerPremium,
-        });
+    const coverageItems = [
+      { code: "21", name: "強制責任保險", amount: compulsoryPremium },
+    ];
+    if (hasHull)
+      coverageItems.push({
+        code: hullType.substring(0, 2),
+        name: `車體損失險(${hullType})`,
+        amount: hullPremium,
+      });
+    if (hasTheft)
+      coverageItems.push({
+        code: "11",
+        name: "竊盜損失險",
+        amount: theftPremium,
+      });
+    if (hasLiability) {
+      coverageItems.push({
+        code: "31",
+        name: `第三人體傷險(${liabilityCoverage})`,
+        amount: liabilityPremiumInjury,
+      });
+      coverageItems.push({
+        code: "32",
+        name: `第三人財損險(${liabilityProperty})`,
+        amount: liabilityPremiumProperty,
+      });
+    }
+    if (hasExcess)
+      coverageItems.push({
+        code: "34",
+        name: `第三人超額險(${excessLimit})`,
+        amount: excessPremium,
+      });
+    if (hasPassenger)
+      coverageItems.push({
+        code: "54",
+        name: "乘客責任險",
+        amount: passengerPremium,
+      });
 
-        await supabaseClient.from("quote_full_records").insert([
-          {
-            quotation_no: qid,
-            client_name: clientName,
-            phone: phone,
-            client_email: clientEmail,
-            birthday: birthday,
-            gender: gender,
-            passenger_count: passengerCount,
-            passenger_unit: passengerUnit,
-            plate_no: carNumber,
-            vehicle_type_display: vehicle,
-            brand_series: mergedBrandSeries,
-            model_code: modelCode,
-            engine_displacement: engineDisplacement,
-            replacement_value: replacementValue,
-            manufacture_date: manufactureDate,
-            issue_date: issueDate,
-            compulsory_start_date: startDate,
-            compulsory_end_date: endDateCompulsory,
-            arbitrary_start_date: startDateArbitrary,
-            arbitrary_end_date: endDateArbitrary,
-            coverage_items: coverageItems,
-            compulsory_premium: compulsoryPremium,
-            arbitrary_premium: arbitraryPremium,
-            total_premium: totalPremium,
-            sign_status: "待簽署",
-            payment_status: "未繳費",
-            otp_verified: false,
-            mid_verified: false,
-            card_verified: false,
-          },
-        ]);
+    await supabaseClient.from("quote_full_records").insert([
+      {
+        quotation_no: qid,
+        client_name: clientName,
+        phone: phone,
+        client_email: clientEmail,
+        birthday: birthday,
+        gender: gender,
+        passenger_count: passengerCount,
+        passenger_unit: passengerUnit,
+        plate_no: carNumber,
+        vehicle_type_display: vehicle,
+        brand_series: mergedBrandSeries,
+        model_code: modelCode,
+        engine_displacement: engineDisplacement,
+        replacement_value: replacementValue,
+        manufacture_date: manufactureDate,
+        issue_date: issueDate,
+        compulsory_start_date: startDate,
+        compulsory_end_date: endDateCompulsory,
+        arbitrary_start_date: startDateArbitrary,
+        arbitrary_end_date: endDateArbitrary,
+        coverage_items: coverageItems,
+        compulsory_premium: compulsoryPremium,
+        arbitrary_premium: arbitraryPremium,
+        total_premium: totalPremium,
+        sign_status: "待簽署",
+        payment_status: "未繳費",
+        otp_verified: false,
+        mid_verified: false,
+        card_verified: false,
+      },
+    ]);
 
-      await supabaseClient.from("insurance_quotations").insert([
-        {
-          quotation_no: qid,
-          client_name: clientName,
-          plate_no: carNumber,
-          vehicle_type_display: vehicle,
-          forced_premium: compulsoryPremium,
-          arbitrary_premium: arbitraryPremium,
-          total_premium: totalPremium,
-          status: "待簽署",
-          ui_state_snapshot: {
-            compulsoryStartDate: startDate,
-            compulsoryEndDate: endDateCompulsory,
-            arbitraryStartDate: startDateArbitrary,
-            arbitraryEndDate: endDateArbitrary,
-            clientEmail: clientEmail,
-            phone: phone,
-            coverageItems: coverageItems,
-          }
-        },
-      ]);
-      setHistoryQuotes([
-        {
-          quoteId: qid,
-          clientName,
-          carNumber,
-          vehicle,
-          compulsoryPremium,
-          arbitraryPremium,
-          totalPremium,
-          status: "待簽署",
+    await supabaseClient.from("insurance_quotations").insert([
+      {
+        quotation_no: qid,
+        client_name: clientName,
+        plate_no: carNumber,
+        vehicle_type_display: vehicle,
+        forced_premium: compulsoryPremium,
+        arbitrary_premium: arbitraryPremium,
+        total_premium: totalPremium,
+        status: "待簽署",
+        ui_state_snapshot: {
           compulsoryStartDate: startDate,
           compulsoryEndDate: endDateCompulsory,
           arbitraryStartDate: startDateArbitrary,
@@ -1549,11 +1635,39 @@ export default function App() {
           clientEmail: clientEmail,
           phone: phone,
           coverageItems: coverageItems,
-        },
-        ...historyQuotes,
-      ]);
+        }
+      },
+    ]);
+    setHistoryQuotes([
+      {
+        quoteId: qid,
+        clientName,
+        carNumber,
+        vehicle,
+        compulsoryPremium,
+        arbitraryPremium,
+        totalPremium,
+        status: "待簽署",
+        compulsoryStartDate: startDate,
+        compulsoryEndDate: endDateCompulsory,
+        arbitraryStartDate: startDateArbitrary,
+        arbitraryEndDate: endDateArbitrary,
+        clientEmail: clientEmail,
+        phone: phone,
+        coverageItems: coverageItems,
+      },
+      ...historyQuotes,
+    ]);
+    return { qid, coverageItems };
+  };
+
+  const handleSave = async () => {
+    try {
+      const result = await persistQuoteRecord();
+      if (!result) return;
+      const { qid } = result;
       alert(
-        "儲存成功！單號：" + qid + "\n商用存檔檔案已歸檔為：[" + fileName + "]"
+        "✅ 已為您保留這筆報價資料，單號：" + qid + "\n我們的服務人員將會盡快與您聯繫，謝謝您！"
       );
       // 🧹 完整清空表單，比照第一次開啟報價系統的預設畫面
       setClientName("");
@@ -1597,6 +1711,64 @@ export default function App() {
       setIsCalc(false);
     } catch (err) {}
   };
+
+  // 🌐「報價留存」：存檔但不清空表單，改成開啟「報價內容」彈窗讓客戶檢視/下載
+  const handleKeepQuote = async () => {
+    try {
+      const result = await persistQuoteRecord();
+      if (!result) return;
+      setSavedQuoteId(result.qid);
+      setShowQuoteContentModal(true);
+    } catch (err) {
+      alert("⚠️ 報價留存失敗，請稍後再試一次。");
+    }
+  };
+
+  // 下載報價內容（純前端產生文字檔，不需要後端或PDF套件）
+  const downloadQuoteContent = () => {
+    const lines = [
+      "報價內容",
+      "報價編號：" + savedQuoteId,
+      "客戶姓名：" + clientName,
+      "性別：" + gender,
+      "車牌號碼：" + carNumber,
+      "車種：" + vehicle,
+      "廠牌車系：" + mergedBrandSeries,
+      "排氣量：" + engineDisplacement,
+      "重置價格：" + replacementValue + " 萬",
+      "乘載量：" + passengerCount + " " + passengerUnit,
+      "強制保期：" + startDate + " ~ " + endDateCompulsory,
+      "任意保期：" + startDateArbitrary + " ~ " + endDateArbitrary,
+      "聯絡電話：" + phone,
+      "E-mail：" + clientEmail,
+      "",
+      "－－－ 保險內容 －－－",
+      "強制責任保險：" + compulsoryPremium + " 元",
+    ];
+    if (hasHull) lines.push(`車體損失險(${hullType})：${hullPremium} 元`);
+    if (hasTheft) lines.push(`竊盜損失險：${theftPremium} 元`);
+    if (hasLiability) {
+      lines.push(`第三人體傷險(${liabilityCoverage})：${liabilityPremiumInjury} 元`);
+      lines.push(`第三人財損險(${liabilityProperty})：${liabilityPremiumProperty} 元`);
+    }
+    if (hasExcess) lines.push(`第三人超額險(${excessLimit})：${excessPremium} 元`);
+    if (hasPassenger) lines.push(`乘客責任險：${passengerPremium} 元`);
+    lines.push("");
+    lines.push("任意險保費(NT$)：" + arbitraryPremium);
+    lines.push("強制險保費(NT$)：" + compulsoryPremium);
+    lines.push("總保險費(NT$)：" + totalPremium);
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = (savedQuoteId || "報價內容") + ".txt";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
 
   // ==========================================
   // 🚀 3. 三軌通訊外發渠道 (💡 修正問題 5：精確對齊內文變數，100% 絕對強制外彈信箱)
@@ -2648,16 +2820,42 @@ export default function App() {
         </div>
       </div>
 
-      {/* 🌐 網路投保簡易試算版：只保留試算保費，移除儲存/查詢/驗證/下載/簽名等內部作業功能 */}
+      {/* 🌐 網路投保簡易試算版：保費計算／報價留存／我要投保／返回官網 */}
       <div className="row g-2 mb-2">
-        <div className="col-md-6 offset-md-3 col-12">
+        <div className="col-md-3 col-6">
           <button
             type="button"
             onClick={triggerCalc}
             className="btn btn-primary w-100 fw-bold py-2"
           >
-            試算保費
+            保費計算
           </button>
+        </div>
+        <div className="col-md-3 col-6">
+          <button
+            type="button"
+            onClick={handleKeepQuote}
+            className="btn btn-outline-secondary w-100 fw-bold py-2"
+          >
+            報價留存
+          </button>
+        </div>
+        <div className="col-md-3 col-6">
+          <button
+            type="button"
+            onClick={openApplyInfoModal}
+            className="btn btn-success w-100 fw-bold py-2"
+          >
+            我要投保
+          </button>
+        </div>
+        <div className="col-md-3 col-6">
+          <a
+            href="https://bluesky-website-delta.vercel.app"
+            className="btn btn-outline-dark w-100 fw-bold py-2"
+          >
+            返回官網
+          </a>
         </div>
       </div>
 
@@ -2820,6 +3018,344 @@ export default function App() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 📋 報價內容（報價留存） */}
+      {showQuoteContentModal && (
+        <div
+          className="modal d-block show bg-black bg-opacity-75"
+          style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", zIndex: 100060, overflowY: "auto" }}
+        >
+          <div className="d-flex align-items-center justify-content-center min-vh-100 p-3">
+            <div className="bg-white rounded-3 p-4 shadow-lg" style={{ maxWidth: "560px", width: "100%" }}>
+              <div className="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
+                <h6 className="fw-bold text-primary mb-0">📋 報價內容</h6>
+                <button type="button" className="btn-close" onClick={() => setShowQuoteContentModal(false)} />
+              </div>
+              <div className="row small mb-1">
+                <div className="col-6 mb-2"><span className="text-muted">報價編號：</span><span className="fw-bold">{savedQuoteId}</span></div>
+                <div className="col-6 mb-2"><span className="text-muted">客戶姓名：</span><span className="fw-bold">{clientName}</span></div>
+                <div className="col-6 mb-2"><span className="text-muted">性別：</span><span className="fw-bold">{gender}</span></div>
+                <div className="col-6 mb-2"><span className="text-muted">車牌號碼：</span><span className="fw-bold">{carNumber}</span></div>
+                <div className="col-6 mb-2"><span className="text-muted">車種：</span><span className="fw-bold">{vehicle}</span></div>
+                <div className="col-6 mb-2"><span className="text-muted">廠牌車系：</span><span className="fw-bold">{mergedBrandSeries}</span></div>
+                <div className="col-6 mb-2"><span className="text-muted">排氣量：</span><span className="fw-bold">{engineDisplacement}</span></div>
+                <div className="col-6 mb-2"><span className="text-muted">重置價格：</span><span className="fw-bold">{replacementValue} 萬</span></div>
+                <div className="col-6 mb-2"><span className="text-muted">乘載量：</span><span className="fw-bold">{passengerCount} {passengerUnit}</span></div>
+                <div className="col-6 mb-2"><span className="text-muted">聯絡電話：</span><span className="fw-bold">{phone}</span></div>
+                <div className="col-6 mb-2"><span className="text-muted">強制保期：</span><span className="fw-bold">{startDate} ~ {endDateCompulsory}</span></div>
+                <div className="col-6 mb-2"><span className="text-muted">任意保期：</span><span className="fw-bold">{startDateArbitrary} ~ {endDateArbitrary}</span></div>
+                <div className="col-12 mb-2"><span className="text-muted">E-mail：</span><span className="fw-bold">{clientEmail}</span></div>
+              </div>
+              <table className="table table-sm border mt-2">
+                <thead className="table-light">
+                  <tr><th>代號</th><th>保險種類</th><th className="text-end">保險費(元)</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>21</td><td>強制責任保險</td><td className="text-end">{compulsoryPremium}</td></tr>
+                  {hasHull && <tr><td>{hullType.substring(0, 2)}</td><td>車體損失險({hullType})</td><td className="text-end">{hullPremium}</td></tr>}
+                  {hasTheft && <tr><td>11</td><td>竊盜損失險</td><td className="text-end">{theftPremium}</td></tr>}
+                  {hasLiability && <tr><td>31</td><td>第三人體傷險({liabilityCoverage})</td><td className="text-end">{liabilityPremiumInjury}</td></tr>}
+                  {hasLiability && <tr><td>32</td><td>第三人財損險({liabilityProperty})</td><td className="text-end">{liabilityPremiumProperty}</td></tr>}
+                  {hasExcess && <tr><td>34</td><td>第三人超額險({excessLimit})</td><td className="text-end">{excessPremium}</td></tr>}
+                  {hasPassenger && <tr><td>54</td><td>乘客責任險</td><td className="text-end">{passengerPremium}</td></tr>}
+                </tbody>
+              </table>
+              <div className="text-end small">
+                <div>任意險保費(NT$)：{arbitraryPremium}</div>
+                <div>強制險保費(NT$)：{compulsoryPremium}</div>
+                <div className="fw-bold text-danger fs-6">總保險費(NT$)：{totalPremium}</div>
+              </div>
+              <button type="button" className="btn btn-primary w-100 fw-bold mt-3" onClick={downloadQuoteContent}>
+                下載
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📝 我要投保：先確認姓名／車號／電話 */}
+      {showApplyInfoModal && (
+        <div
+          className="modal d-block show bg-black bg-opacity-75"
+          style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", zIndex: 100060, overflowY: "auto" }}
+        >
+          <div className="d-flex align-items-center justify-content-center min-vh-100 p-3">
+            <div className="bg-white rounded-3 p-4 shadow-lg" style={{ maxWidth: "420px", width: "100%" }}>
+              <div className="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
+                <h6 className="fw-bold text-primary mb-0">📝 確認投保資料</h6>
+                <button type="button" className="btn-close" onClick={() => setShowApplyInfoModal(false)} />
+              </div>
+              <p className="small text-muted">進入繳費流程前，請補齊並仔細確認以下資料：</p>
+              <label className="small fw-bold">姓名 *</label>
+              <input type="text" className="form-control mb-2" value={clientName} onChange={(e) => setClientName(e.target.value)} />
+              <label className="small fw-bold">車號 *</label>
+              <input type="text" className="form-control mb-2" value={carNumber} onChange={(e) => setCarNumber(e.target.value)} />
+              <label className="small fw-bold">聯絡電話 *</label>
+              <input type="text" className="form-control mb-3" value={phone} onChange={(e) => setPhone(e.target.value)} />
+              <button type="button" className="btn btn-success w-100 fw-bold" onClick={confirmApplyInfoAndProceed}>
+                確認，前往繳費
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 💳 汽機車投保繳費流程 */}
+      {showPaymentFlowModal && (
+        <div
+          className="modal d-block show bg-black bg-opacity-75"
+          style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", zIndex: 100055, overflowY: "auto" }}
+        >
+          <div className="d-flex align-items-center justify-content-center min-vh-100 p-3">
+            <div className="bg-white rounded-3 p-4 shadow-lg" style={{ maxWidth: "520px", width: "100%" }}>
+              <div className="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
+                <h6 className="fw-bold text-primary mb-0">💳 汽機車投保繳費流程</h6>
+                <button type="button" className="btn-close" onClick={() => setShowPaymentFlowModal(false)} />
+              </div>
+
+              <div className="border rounded p-3 mb-3 bg-light">
+                <div className="fw-bold small mb-2">核定明細：</div>
+                <div className="small">客戶姓名：{clientName}</div>
+                <div className="small">車牌號碼：{carNumber}</div>
+                <div className="small">車種項目：{vehicle}</div>
+                <div className="small mb-2">聯絡電話：{phone}</div>
+                <div className="fw-bold text-danger">總保費金額合計：NT$ {totalPremium} 元</div>
+              </div>
+
+              <div className="d-flex justify-content-between align-items-start mb-2 gap-2">
+                <div className="text-danger fw-bold small">
+                  ⚠️ 網路投保繳費前請先完成OTP身分驗證後再進行繳費
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-secondary flex-shrink-0"
+                  onClick={() => setShowPaymentNoticeModal(true)}
+                >
+                  繳費注意事項
+                </button>
+              </div>
+
+              <div
+                className={`d-flex justify-content-between align-items-center rounded-2 p-2 mb-3 ${
+                  otpVerified ? "bg-success bg-opacity-10" : "bg-warning bg-opacity-10"
+                }`}
+              >
+                <span className="small fw-bold">{otpVerified ? "✅ OTP驗證已通過" : "未驗證"}</span>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-primary"
+                  onClick={() => setShowOtpModal(true)}
+                  disabled={otpVerified}
+                >
+                  {otpVerified ? "已驗證" : "OTP驗證"}
+                </button>
+              </div>
+
+              {otpVerified && (
+                <>
+                  <div className="fw-bold small mb-2">請選擇繳費方式：</div>
+                  <div className="list-group mb-3">
+                    <button
+                      type="button"
+                      className={`list-group-item list-group-item-action ${paymentMethod === "card" ? "active" : ""}`}
+                      onClick={() => setPaymentMethod("card")}
+                    >
+                      1. 信用卡
+                    </button>
+                    <button
+                      type="button"
+                      className={`list-group-item list-group-item-action ${paymentMethod === "jkopay" ? "active" : ""}`}
+                      onClick={() => setPaymentMethod("jkopay")}
+                    >
+                      2. 街口支付
+                    </button>
+                    <button
+                      type="button"
+                      className={`list-group-item list-group-item-action ${paymentMethod === "bank" ? "active" : ""}`}
+                      onClick={() => setPaymentMethod("bank")}
+                    >
+                      3. 銀行轉帳
+                    </button>
+                  </div>
+
+                  {paymentMethod === "card" && (
+                    <div className="mb-3">
+                      <label className="small fw-bold">卡號（16碼）</label>
+                      <input
+                        type="text"
+                        className="form-control mb-2 font-monospace"
+                        placeholder="---- ---- ---- ----"
+                        value={payCardNumber}
+                        onChange={handlePayCardNumberChange}
+                      />
+                      <div className="row g-2">
+                        <div className="col-6">
+                          <label className="small fw-bold">有效期限（MM/YYYY）</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            placeholder="MM/YYYY"
+                            value={payCardExpiry}
+                            onChange={handlePayCardExpiryChange}
+                          />
+                        </div>
+                        <div className="col-6">
+                          <label className="small fw-bold">卡片背面末3碼</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            maxLength={3}
+                            value={payCardCvv}
+                            onChange={(e) => setPayCardCvv(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {paymentMethod === "jkopay" && (
+                    <div className="mb-3 small text-muted">
+                      將導轉至街口支付App完成付款（模擬流程，按下方「確認繳費」即視為完成）。
+                    </div>
+                  )}
+
+                  {paymentMethod === "bank" && (
+                    <div className="mb-3 row g-2">
+                      <div className="col-4">
+                        <label className="small fw-bold">銀行代碼（3碼）</label>
+                        <input type="text" className="form-control" value={payBankCode} onChange={handlePayBankCodeChange} />
+                      </div>
+                      <div className="col-8">
+                        <label className="small fw-bold">銀行帳號（14碼）</label>
+                        <input type="text" className="form-control" value={payBankAccount} onChange={handlePayBankAccountChange} />
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    className="btn btn-success w-100 fw-bold py-2"
+                    onClick={handleConfirmPayment}
+                    disabled={paymentProcessing}
+                  >
+                    {paymentProcessing ? "處理中..." : "確認繳費"}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📌 繳費注意事項 */}
+      {showPaymentNoticeModal && (
+        <div
+          className="modal d-block show bg-black bg-opacity-75"
+          style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", zIndex: 100065, overflowY: "auto" }}
+        >
+          <div className="d-flex align-items-center justify-content-center min-vh-100 p-3">
+            <div className="bg-white rounded-3 p-4 shadow-lg" style={{ maxWidth: "460px", width: "100%" }}>
+              <div className="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
+                <h6 className="fw-bold text-primary mb-0">📌 繳費注意事項</h6>
+                <button type="button" className="btn-close" onClick={() => setShowPaymentNoticeModal(false)} />
+              </div>
+              <ol className="small ps-3" style={{ lineHeight: 1.8 }}>
+                <li className="mb-2">
+                  完成線上身分驗證：通常透過「簡訊OTP動態密碼」、「投保人本人信用卡verification」或「金融身份識別（軟體憑證／網銀身分驗證）」來確定是你本人操作。
+                </li>
+                <li>
+                  身分一致性驗證：要保人與被保險人要為同一人，依金管會規定網路投保繳費之信用卡或支付帳戶，持有人必須與要保人（即被保險人）一致，無法使用他人信用卡代繳。
+                </li>
+              </ol>
+              <button
+                type="button"
+                className="btn btn-outline-secondary w-100 fw-bold mt-2"
+                onClick={() => setShowPaymentNoticeModal(false)}
+              >
+                我已了解
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ 保單生效說明 */}
+      {showPolicyActiveModal && (
+        <div
+          className="modal d-block show bg-black bg-opacity-75"
+          style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", zIndex: 100070, overflowY: "auto" }}
+        >
+          <div className="d-flex align-items-center justify-content-center min-vh-100 p-3">
+            <div className="bg-white rounded-3 p-4 shadow-lg text-center" style={{ maxWidth: "420px", width: "100%" }}>
+              <div className="fs-1 mb-2">✅</div>
+              <h6 className="fw-bold text-success mb-3">保單生效說明</h6>
+              <p className="small text-muted" style={{ lineHeight: 1.8 }}>
+                您的車險投保已正式生效，後續本公司會寄送簡訊給您，點選所附網址即可收到您的保險電子保單。
+              </p>
+              <button type="button" className="btn btn-primary w-100 fw-bold mt-2" onClick={closePolicyActiveModal}>
+                返回官網
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📱 OTP 身分驗證（網路投保繳費流程專用，客戶端可直接觸發） */}
+      {showOtpModal && (
+        <div
+          className="modal d-block show bg-black bg-opacity-75"
+          style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", zIndex: 100075, overflowY: "auto" }}
+        >
+          <div className="d-flex align-items-center justify-content-center min-vh-100 p-3">
+            <div className="bg-white rounded-3 p-4 shadow-lg" style={{ maxWidth: "400px", width: "100%" }}>
+              <div className="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
+                <h6 className="fw-bold text-primary mb-0">📱 OTP 身分驗證</h6>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => {
+                    setShowOtpModal(false);
+                    setOtpPhase("send");
+                    setOtpInput("");
+                  }}
+                />
+              </div>
+
+              {otpPhase === "send" && (
+                <>
+                  <p className="small text-muted">
+                    將發送驗證碼至您的手機：
+                    <span className="fw-bold text-dark">{phone || "（尚未填寫電話）"}</span>
+                  </p>
+                  <button type="button" className="btn btn-primary w-100 fw-bold" disabled={!phone} onClick={sendOtpCode}>
+                    發送驗證碼
+                  </button>
+                </>
+              )}
+
+              {otpPhase === "verify" && (
+                <>
+                  <p className="small text-muted">請輸入您收到的 6 位數驗證碼：</p>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    className="form-control mb-3 text-center fs-4 font-monospace"
+                    value={otpInput}
+                    onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ""))}
+                    placeholder="------"
+                  />
+                  <button type="button" className="btn btn-primary w-100 fw-bold mb-2" onClick={verifyOtpCode}>
+                    確認驗證
+                  </button>
+                  <button type="button" className="btn btn-link w-100 btn-sm" onClick={sendOtpCode}>
+                    重新發送驗證碼
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
