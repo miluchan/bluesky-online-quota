@@ -41,6 +41,9 @@ const SUPABASE_URL = "https://gdkpjnprlwvsnjxjgouw.supabase.co";
 const SUPABASE_KEY = "sb_publishable__0EKAJuODhxIZ6fFoef5Jw_a_Oi7Bbe";
 const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// 🧮 保費計算API（獨立部署的 quote-calculate Edge Function）
+const QUOTE_API_URL = "https://gdkpjnprlwvsnjxjgouw.supabase.co/functions/v1/quote-calculate";
+
 // 後端規則引擎
 const INSURANCE_RATE_ENGINE = {
   versionCode: "V2026_GOLDEN",
@@ -48,7 +51,7 @@ const INSURANCE_RATE_ENGINE = {
   hullBaseRates: { "01甲式": 0.022, "05乙式": 0.011, "07丙式": 0.0065 },
   theftBaseRate: 0.0058,
   compulsoryBase: { 自小客: 1318, 重型機車: 1470 },
-  annualDepreciation: 0.75,
+  annualDepreciation: 0.85,
 };
 
 // 🚗 23 檔完全體車籍字典 (挑選車種全自動取得價格與c.c.數)
@@ -376,7 +379,7 @@ export default function App() {
 
   const closePolicyActiveModal = () => {
     setShowPolicyActiveModal(false);
-    window.location.href = "https://bluesky-website-delta.vercel.app";
+    window.location.href = "https://YOUR-BLUESKY-WEBSITE-URL.vercel.app";
   };
 
   const sendOtpCode = () => {
@@ -1154,281 +1157,170 @@ export default function App() {
     .filter((r) => r.injury_coverage === liabilityCoverage)
     .map((r) => r.property_coverage);
   const triggerCalc = async () => {
-    const currentYear = 115;
-    const age = currentYear - (parseInt(birthday.substring(0, 2)) || 48);
-    let activeRule = INSURANCE_RATE_ENGINE;
-
-    const { data: ageFactors } = await supabaseClient
-      .from("age_gender_factors")
-      .select("*")
-      .lte("age_min", age)
-      .gte("age_max", age);
-    const ageFactorRecord =
-      ageFactors && ageFactors.length > 0
-        ? ageFactors[0]
-        : { male_factor: 1.1, female_factor: 1.0 };
-    const ageGenderFactor =
-      gender === "女"
-        ? parseFloat(ageFactorRecord.female_factor)
-        : parseFloat(ageFactorRecord.male_factor);
-
-    const originalValue = (parseFloat(replacementValue) || 0) * 10000;
-    const depreciatedValue = Math.round(
-      originalValue * Math.pow(activeRule.annualDepreciation, carAge)
-    );
-
-    let p_hull = 0,
-      p_theft = 0,
-      p_liab_inj = 0,
-      p_liab_prop = 0,
-      p_excess = 0,
-      p_passenger = 0;
-    const hullVersion = pickVersionedRate(hullRateVersions, startDate) || {
-      effective_date: "預設",
-      depreciation_rate: 0.75,
-      base_rate_a: 0.022,
-      base_rate_b: 0.011,
-      base_rate_c: 0.0065,
-    };
-    const hullClaimPool = hullClaimFactorTable.filter(
-      (r) => r.effective_date === hullVersion.effective_date
-    );
-    const hullClaimRecord = hullClaimPool.find(
-      (r) => r.claim_level === parseInt(hullClaimLevel)
-    );
-    const hullClaimFactorValue = hullClaimRecord
-      ? parseFloat(hullClaimRecord.factor)
-      : (parseInt(hullClaimLevel) || 0) * 0.2;
-
-    if (hasHull) {
-      const baseRate =
-        hullType === "01甲式"
-          ? hullVersion.base_rate_a
-          : hullType === "05乙式"
-          ? hullVersion.base_rate_b
-          : hullVersion.base_rate_c;
-      const basicPremium = depreciatedValue * baseRate;
-      const dedPool = hullDeductibleFactorTable.filter(
-        (r) => r.effective_date === hullVersion.effective_date
-      );
-      const dedRecord = dedPool.find(
-        (r) => r.deductible_label === hullDeductible
-      );
-      let dedFactor = dedRecord ? parseFloat(dedRecord.factor) : 1.0;
-      const beforeDeductible =
-        basicPremium * rateCode * (ageGenderFactor + hullClaimFactorValue);
-      p_hull = Math.round(
-        hullType === "07丙式" ? beforeDeductible : beforeDeductible * dedFactor
-      );
-
-      // 📋 記錄計算明細，供「查看公式」按鈕顯示驗證用
-      setHullFormulaDetail({
-        effectiveDate: hullVersion.effective_date,
-        replacementValue: originalValue,
-        depreciationRate: hullVersion.depreciation_rate,
-        carAge,
-        depreciatedValue,
-        baseRate,
-        basicPremium: Math.round(basicPremium),
-        rateCode,
-        ageGenderFactor,
-        hullClaimFactorValue,
-        dedFactor: hullType === "07丙式" ? 1.0 : dedFactor,
-        beforeDeductible: Math.round(beforeDeductible),
-        finalPremium: p_hull,
-      });
-    }
-    if (hasTheft) {
-      const theftVersion = pickVersionedRate(
-        theftRateVersions,
-        startDateArbitrary
-      );
-      const depreciatedValueWan = depreciatedValue / 10000;
-      const theftRow = theftRateVersions.find(
-        (r) =>
-          (!theftVersion || r.effective_date === theftVersion.effective_date) &&
-          depreciatedValueWan >= r.value_min &&
-          depreciatedValueWan < r.value_max
-      ) || { base_rate: 0.006, risk_factor: 0.95 };
-      const theftDedFactor =
-        theftDeductible === "20%" ? 0.8 : theftDeductible === "10%" ? 0.9 : 1.0;
-      const theftBeforeDed =
-        depreciatedValue * theftRow.base_rate * theftRow.risk_factor;
-      p_theft = Math.round(theftBeforeDed * theftDedFactor);
-      setTheftFormulaDetail({
-        depreciatedValue,
-        baseRate: theftRow.base_rate,
-        riskFactor: theftRow.risk_factor,
-        beforeDed: Math.round(theftBeforeDed),
-        dedFactor: theftDedFactor,
-        finalPremium: p_theft,
-      });
-    }
-    let liabilityClaimFactorValue = 0;
-    if (hasLiability) {
-      const claimPool = liabilityClaimFactorTable.filter(
-        (r) =>
-          !liabilityVersion ||
-          r.effective_date === liabilityVersion.effective_date
-      );
-      const claimRecord = claimPool.find(
-        (r) => r.claim_level === parseInt(liabilityClaimLevel)
-      );
-      liabilityClaimFactorValue = claimRecord
-        ? parseFloat(claimRecord.factor)
-        : 0;
-
-      const combo = liabilityRows.find(
-        (r) =>
-          r.injury_coverage === liabilityCoverage &&
-          r.property_coverage === liabilityProperty
-      );
-      const multiplier = 1 + ageGenderFactor + liabilityClaimFactorValue;
-      if (combo) {
-        p_liab_inj = Math.round(combo.injury_premium * multiplier);
-        p_liab_prop = Math.round(combo.property_premium * multiplier);
-        setLiabilityFormulaDetail({
+    // 🧮 保費計算改為呼叫「保費計算API平台」，前端不再自己查表計算，
+    // 只負責組請求、送出、把回傳結果塞進畫面既有的狀態變數與「查看公式明細」資料結構。
+    const requestBody = {
+      policyDates: {
+        compulsoryStartDate: startDate,
+        arbitraryStartDate: startDateArbitrary,
+      },
+      insured: { birthday, gender },
+      vehicle: {
+        vehicleTypeCode: vehicle,
+        manufactureDate,
+        brandSeriesLabel: mergedBrandSeries,
+        replacementValue: parseFloat(replacementValue) || 0,
+      },
+      underwritingFactors: {
+        compulsoryViolationLevel: parseInt(level, 10) || 4,
+        drunkCount: parseInt(drunkCount, 10) || 0,
+        liabilityClaimLevel: parseInt(liabilityClaimLevel, 10) || 4,
+        hullClaimLevel: parseInt(hullClaimLevel, 10) || 0,
+      },
+      coverages: {
+        hull: { selected: hasHull, type: hullType, deductible: hullDeductible },
+        theft: { selected: hasTheft, deductible: theftDeductible },
+        liability: {
+          selected: hasLiability,
           injuryCoverage: liabilityCoverage,
           propertyCoverage: liabilityProperty,
-          injuryBase: combo.injury_premium,
-          propertyBase: combo.property_premium,
-          ageGenderFactor,
-          claimFactor: liabilityClaimFactorValue,
-          multiplier,
-          p_liab_inj,
-          p_liab_prop,
-        });
-      }
-    }
-    if (hasExcess && hasLiability) {
-      const excessPool = excessLiabilityRates.filter(
-        (r) =>
-          !liabilityVersion ||
-          r.effective_date === liabilityVersion.effective_date
-      );
-      const excessRecord = excessPool.find(
-        (r) => r.excess_coverage === excessLimit
-      );
-      if (excessRecord) {
-        const injuryRank = (label) => parseInt(label) || 0; // "300萬/600萬" → 300
-        const injuryOk =
-          injuryRank(liabilityCoverage) >=
-          injuryRank(excessRecord.min_injury_required);
-        const propertyOk =
-          parseFloat(liabilityProperty) >= excessRecord.min_property_required;
-        if (!injuryOk || !propertyOk) {
-          const injuryParts =
-            excessRecord.min_injury_required.match(/\d+/g) || [];
-          const reason = `第三人責任險保額須為${injuryParts[0] || "?"}/${
-            injuryParts[1] || "?"
-          }/${excessRecord.min_property_required}萬以上`;
-          setExcessBlockedReason(reason);
-          alert("⚠️ 無法試算：" + reason);
-          return;
-        }
-        setExcessBlockedReason("");
-        p_excess = excessRecord.base_premium;
-        setExcessFormulaDetail({
-          excessLimit,
-          minInjuryRequired: excessRecord.min_injury_required,
-          minPropertyRequired: excessRecord.min_property_required,
-          basePremium: excessRecord.base_premium,
-        });
-      }
-    } else {
-      setExcessBlockedReason("");
-      setExcessFormulaDetail(null);
-    }
-    if (hasPassenger) {
-      const planObj = PASSENGER_PLAN_OPTIONS.find((o) =>
-        o.label.includes(passengerPlan)
-      ) || { fullPremium: 360, driverPremium: 80 };
-      p_passenger =
-        passengerType === "保整車"
-          ? planObj.fullPremium
-          : planObj.driverPremium;
-      setPassengerFormulaDetail({
-        passengerType,
-        passengerPlan,
-        fullPremium: planObj.fullPremium,
-        driverPremium: planObj.driverPremium,
-        finalPremium: p_passenger,
-      });
-    }
-
-    // 💡 修正問題 3：如果是機車，強制險全自動與從人等級、酒駕次數切斷加成，維持基準費不予乘積
-    const isHeavyMotor = ["01", "02", "32", "34"].some((c) =>
-      vehicle.startsWith(c)
-    );
-    const vehicleCategory = isHeavyMotor ? "普通重型機車" : "自用小客車";
-    const compulsoryVersion = pickVersionedRate(
-      compulsoryRateVersions.length
-        ? [...new Set(compulsoryRateVersions.map((r) => r.effective_date))].map(
-            (d) => ({ effective_date: d })
-          )
-        : [],
-      startDate
-    );
-    const cRow = compulsoryRateVersions.find(
-      (r) =>
-        (!compulsoryVersion ||
-          r.effective_date === compulsoryVersion.effective_date) &&
-        r.vehicle_category === vehicleCategory
-    ) || {
-      base_premium: isHeavyMotor ? 658 : 965.15,
-      business_fee: isHeavyMotor ? 181 : 387.8,
-      special_fund_rate: isHeavyMotor ? 0.02 : 0.03,
-      stability_fund_rate: 0.002,
+        },
+        excess: { selected: hasExcess, limit: excessLimit },
+        passenger: { selected: hasPassenger, type: passengerType, plan: passengerPlan },
+      },
     };
 
-    let adjustedNetPremium;
-    let ageGenderFactorC = null;
-    let violationFactorC = null;
-
-    if (isHeavyMotor) {
-      adjustedNetPremium = cRow.base_premium;
-    } else {
-      const agPool = compulsoryAgeGenderFactors.filter(
-        (r) =>
-          !compulsoryVersion ||
-          r.effective_date === compulsoryVersion.effective_date
-      );
-      const agRecord = agPool.find(
-        (r) => r.gender === gender && age >= r.age_min && age <= r.age_max
-      );
-      ageGenderFactorC = agRecord ? parseFloat(agRecord.factor) : 1.0;
-
-      const vPool = compulsoryViolationFactors.filter(
-        (r) =>
-          !compulsoryVersion ||
-          r.effective_date === compulsoryVersion.effective_date
-      );
-      const vRecord = vPool.find((r) => r.level === parseInt(level));
-      violationFactorC = vRecord ? parseFloat(vRecord.factor) : 1.0;
-
-      adjustedNetPremium =
-        cRow.base_premium * (ageGenderFactorC + violationFactorC - 1);
+    let result;
+    try {
+      const res = await fetch(QUOTE_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+      result = await res.json();
+    } catch (err) {
+      alert("⚠️ 保費計算服務連線失敗，請稍後再試一次。");
+      return;
     }
 
-    const drunkSurcharge = isHeavyMotor ? 0 : parseInt(drunkCount) * 3600;
-    let cp =
-      Math.round(
-        (adjustedNetPremium + cRow.business_fee) /
-          (1 - cRow.special_fund_rate - cRow.stability_fund_rate)
-      ) + drunkSurcharge;
+    if (!result || !result.success) {
+      const code = result?.error?.code;
+      const message = result?.error?.message || "未知錯誤";
+      if (code === "EXCESS_REQUIREMENT_NOT_MET") {
+        setExcessBlockedReason(message);
+      }
+      alert("⚠️ 無法試算：" + message);
+      return;
+    }
+    setExcessBlockedReason("");
 
+    const { premiums, totals, rateVersionsUsed } = result;
+
+    const p_hull = premiums.hull?.amount || 0;
+    const p_theft = premiums.theft?.amount || 0;
+    const p_liab_inj = premiums.liabilityInjury?.amount || 0;
+    const p_liab_prop = premiums.liabilityProperty?.amount || 0;
+    const p_excess = premiums.excess?.amount || 0;
+    const p_passenger = premiums.passenger?.amount || 0;
+    const cp = premiums.compulsory.amount;
+
+    // ---- 組回既有「查看公式明細」資料結構，相關UI元件不用改 ----
     setCompulsoryFormulaDetail({
-      vehicleCategory,
-      basePremium: cRow.base_premium,
-      ageGenderFactor: ageGenderFactorC,
-      violationFactor: violationFactorC,
-      adjustedNetPremium: Math.round(adjustedNetPremium),
-      businessFee: cRow.business_fee,
-      specialFundRate: cRow.special_fund_rate,
-      stabilityFundRate: cRow.stability_fund_rate,
-      drunkSurcharge,
+      vehicleCategory: premiums.compulsory.detail.vehicleCategory,
+      basePremium: premiums.compulsory.detail.basePremium,
+      ageGenderFactor: premiums.compulsory.detail.ageGenderFactor,
+      violationFactor: premiums.compulsory.detail.violationFactor,
+      adjustedNetPremium: premiums.compulsory.detail.adjustedNetPremium,
+      businessFee: premiums.compulsory.detail.businessFee,
+      specialFundRate: premiums.compulsory.detail.specialFundRate,
+      stabilityFundRate: premiums.compulsory.detail.stabilityFundRate,
+      drunkSurcharge: premiums.compulsory.detail.drunkSurcharge,
       cp,
     });
+
+    if (premiums.hull) {
+      const d = premiums.hull.detail;
+      setHullFormulaDetail({
+        effectiveDate: rateVersionsUsed.hull,
+        replacementValue: (parseFloat(replacementValue) || 0) * 10000,
+        depreciationRate: d.depreciationRate,
+        carAge,
+        depreciatedValue: d.depreciatedValue,
+        baseRate: d.baseRate,
+        basicPremium: d.basicPremium,
+        rateCode: d.rateFactor,
+        ageGenderFactor: d.ageGenderFactor,
+        hullClaimFactorValue: d.hullClaimFactor,
+        dedFactor: d.deductibleFactor,
+        beforeDeductible: d.beforeDeductible,
+        finalPremium: p_hull,
+      });
+    } else {
+      setHullFormulaDetail(null);
+    }
+
+    if (premiums.theft) {
+      const d = premiums.theft.detail;
+      setTheftFormulaDetail({
+        depreciatedValue: d.depreciatedValue,
+        baseRate: d.baseRate,
+        riskFactor: d.riskFactor,
+        beforeDed: d.beforeDed,
+        dedFactor: d.deductibleFactor,
+        finalPremium: p_theft,
+      });
+    } else {
+      setTheftFormulaDetail(null);
+    }
+
+    if (premiums.liabilityInjury && premiums.liabilityProperty) {
+      const di = premiums.liabilityInjury.detail;
+      const dp = premiums.liabilityProperty.detail;
+      setLiabilityFormulaDetail({
+        injuryCoverage: di.injuryCoverage,
+        propertyCoverage: dp.propertyCoverage,
+        injuryBase: di.baseAmount,
+        propertyBase: dp.baseAmount,
+        ageGenderFactor: di.ageGenderFactor,
+        claimFactor: di.claimFactor,
+        multiplier: di.multiplier,
+        p_liab_inj,
+        p_liab_prop,
+      });
+    } else {
+      setLiabilityFormulaDetail(null);
+    }
+
+    if (premiums.excess) {
+      const d = premiums.excess.detail;
+      setExcessFormulaDetail({
+        excessLimit: d.excessLimit,
+        minInjuryRequired: d.minInjuryRequired,
+        minPropertyRequired: d.minPropertyRequired,
+        basePremium: p_excess,
+      });
+    } else {
+      setExcessFormulaDetail(null);
+    }
+
+    if (premiums.passenger) {
+      const d = premiums.passenger.detail;
+      setPassengerFormulaDetail({
+        passengerType: d.type,
+        passengerPlan: d.plan,
+        fullPremium: d.fullPremium,
+        driverPremium: d.driverPremium,
+        finalPremium: p_passenger,
+      });
+    } else {
+      setPassengerFormulaDetail(null);
+    }
+
+    // 🌐 保額（折舊後價值）改成用API算出來的正式數字覆蓋，不再顯示打字當下的預估值
+    const officialDepreciatedValue = premiums.hull?.detail?.depreciatedValue ?? premiums.theft?.detail?.depreciatedValue;
+    if (officialDepreciatedValue != null) {
+      setDepreciatedInsuredValue(Math.round(officialDepreciatedValue / 10000));
+    }
 
     setHullPremium(p_hull);
     setTheftPremium(p_theft);
@@ -1437,26 +1329,10 @@ export default function App() {
     setExcessPremium(p_excess);
     setPassengerPremium(p_passenger);
     setCompulsoryPremium(cp);
-    setArbitraryPremium(
-      p_hull + p_theft + p_liab_inj + p_liab_prop + p_excess + p_passenger
-    );
-    setTotalPremium(
-      cp + p_hull + p_theft + p_liab_inj + p_liab_prop + p_excess + p_passenger
-    );
+    setArbitraryPremium(totals.arbitraryPremium);
+    setTotalPremium(totals.totalPremium);
     setIsCalc(true);
-    alert(
-      "精算對帳單完成！總金額為 NT$ " +
-        (
-          cp +
-          p_hull +
-          p_theft +
-          p_liab_inj +
-          p_liab_prop +
-          p_excess +
-          p_passenger
-        ).toLocaleString() +
-        " 元。"
-    );
+    alert("精算對帳單完成！總金額為 NT$ " + totals.totalPremium.toLocaleString() + " 元。");
   };
 
   // 🚀 修正問題 2：精確對齊大表的資料欄位，讓一覽表的起保與到期日 100% 彩色現形！
@@ -2851,7 +2727,7 @@ export default function App() {
         </div>
         <div className="col-md-3 col-6">
           <a
-            href="https://bluesky-website-delta.vercel.app"
+            href="https://YOUR-BLUESKY-WEBSITE-URL.vercel.app"
             className="btn btn-outline-dark w-100 fw-bold py-2"
           >
             返回官網
@@ -3362,4 +3238,6 @@ export default function App() {
     </div>
   );
 } // ⚠️ 鋼鐵終極封頂結尾大括號！
+
+
 
