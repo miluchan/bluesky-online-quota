@@ -2727,7 +2727,7 @@ export default function App() {
         </div>
         <div className="col-md-3 col-6">
           <a
-            href="https://YOUR-BLUESKY-WEBSITE-URL.vercel.app"
+            href="https://bluesky-website-delta.vercel.app"
             className="btn btn-outline-dark w-100 fw-bold py-2"
           >
             返回官網
