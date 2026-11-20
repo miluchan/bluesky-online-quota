@@ -408,7 +408,7 @@ export default function App() {
 
   const closePolicyActiveModal = () => {
     setShowPolicyActiveModal(false);
-    window.location.href = "https://YOUR-BLUESKY-WEBSITE-URL.vercel.app";
+    window.location.href = "https://bluesky-website-delta.vercel.app";
   };
 
   const sendOtpCode = () => {
