@@ -284,6 +284,7 @@ export default function App() {
   // ================================================================
   const [showQuoteContentModal, setShowQuoteContentModal] = useState(false);
   const [savedQuoteId, setSavedQuoteId] = useState("");
+  const [savedQuoteSig, setSavedQuoteSig] = useState(""); // 「報價留存」當下的報價內容，投保時內容沒變就沿用同一張報價單
   const [showApplyInfoModal, setShowApplyInfoModal] = useState(false);
   const [showPaymentFlowModal, setShowPaymentFlowModal] = useState(false);
   const [showPaymentNoticeModal, setShowPaymentNoticeModal] = useState(false);
@@ -296,6 +297,7 @@ export default function App() {
   const [payBankAccount, setPayBankAccount] = useState("");
   const [paymentProcessing, setPaymentProcessing] = useState(false);
   const [issuedPolicies, setIssuedPolicies] = useState([]); // [{kind:"CC"|"AC", policyNo}]
+  const [payQuoteId, setPayQuoteId] = useState(""); // 本次投保繳費所用的報價單號（每次按「我要投保」重新產生）
 
   const handlePayCardNumberChange = (e) => {
     const digits = e.target.value.replace(/\D/g, "").slice(0, 16);
@@ -324,6 +326,8 @@ export default function App() {
       return;
     }
     setShowApplyInfoModal(false);
+    setPayQuoteId("");
+    setIssuedPolicies([]);
     setOtpVerified(false);
     setOtpPhase("send");
     setOtpInput("");
@@ -378,12 +382,17 @@ export default function App() {
     setPaymentProcessing(true);
     try {
       // 1. 存報價單（同一次投保只存一次；重按繳費沿用同一單號，不會重複出單）
-      let qid = savedQuoteId;
+      let qid = payQuoteId;
+      // 已按過「報價留存」且內容沒改 → 沿用那張報價單，不再新增一筆
+      if (!qid && savedQuoteId && savedQuoteSig === quoteSig()) {
+        qid = savedQuoteId;
+        setPayQuoteId(qid);
+      }
       if (!qid) {
         const result = await persistQuoteRecord();
         if (!result) return;
         qid = result.qid;
-        setSavedQuoteId(qid);
+        setPayQuoteId(qid);
       }
       // 2. 🧪 模擬繳費，之後串接真實金流時，這裡改成呼叫金流API
       await new Promise((r) => setTimeout(r, 1200));
@@ -394,8 +403,11 @@ export default function App() {
         body: JSON.stringify({ quoteNo: qid }),
       });
       const out = await res.json().catch(() => ({}));
+      console.log("issue-policy", paymentMethod, qid, res.status, out);
       if (!res.ok || !out.ok) throw new Error(out.error || "HTTP " + res.status);
+      if (!out.policies || !out.policies.length) throw new Error("未取得保單號碼（單號 " + qid + "）");
       setIssuedPolicies(out.policies || []);
+      setSavedQuoteSig(""); // 這張已出單，之後不再沿用
       setShowPaymentFlowModal(false);
       setShowPolicyActiveModal(true);
     } catch (err) {
@@ -1432,6 +1444,15 @@ export default function App() {
   };
 
   // 🚀 2. 精算並儲存報價單 (💡 修正問題 5：跨日期偵測流水序號強制從 00001 重頭開始)
+  // 報價內容指紋：用來判斷「報價留存」後內容有沒有改過
+  const quoteSig = () =>
+    JSON.stringify([
+      clientName, phone, clientEmail, birthday, gender, carNumber, vehicle,
+      startDate, endDateCompulsory, startDateArbitrary, endDateArbitrary,
+      compulsoryPremium, arbitraryPremium, totalPremium,
+      hasHull, hullType, hasTheft, hasLiability, liabilityCoverage, liabilityProperty, hasExcess, excessLimit, hasPassenger,
+    ]);
+
   const persistQuoteRecord = async () => {
     if (!phone) {
       alert("⚠️ 行動電話為必填欄位，請填寫後再試算並儲存報價單。");
@@ -1634,6 +1655,7 @@ export default function App() {
       const result = await persistQuoteRecord();
       if (!result) return;
       setSavedQuoteId(result.qid);
+      setSavedQuoteSig(quoteSig());
       setShowQuoteContentModal(true);
     } catch (err) {
       alert("⚠️ 報價留存失敗，請稍後再試一次。");
@@ -3288,4 +3310,3 @@ export default function App() {
     </div>
   );
 } // ⚠️ 鋼鐵終極封頂結尾大括號！
-
