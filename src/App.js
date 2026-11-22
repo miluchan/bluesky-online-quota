@@ -419,7 +419,7 @@ export default function App() {
       const res = await fetch(ISSUE_API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" }, // 與 quote-calculate 相同：函式已關閉 Verify JWT
-        body: JSON.stringify({ quoteNo: qid, agentToken }),
+        body: JSON.stringify({ quoteNo: qid, agentToken, payMethod: paymentMethod }), // 付款方式 card／jkopay／bank → 帳款檔付款狀況
       });
       const out = await res.json().catch(() => ({}));
       console.log("issue-policy", paymentMethod, qid, res.status, out);
