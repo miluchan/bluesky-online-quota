@@ -44,6 +44,8 @@ const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 // 🧮 保費計算API（獨立部署的 quote-calculate Edge Function）
 const QUOTE_API_URL = "https://gdkpjnprlwvsnjxjgouw.supabase.co/functions/v1/quote-calculate";
 // 繳費完成後出單：寫入住火系統 Neon ao_plyedr_prem，取得強制險 CC／任意險 AC 保單號碼
+// 產險系統功能選單（「返回選單」）
+const MENU_URL = "https://fire-eq-quote-sigma.vercel.app/menu";
 const ISSUE_API_URL = "https://gdkpjnprlwvsnjxjgouw.supabase.co/functions/v1/issue-policy";
 
 // 後端規則引擎
@@ -437,7 +439,7 @@ export default function App() {
 
   const closePolicyActiveModal = () => {
     setShowPolicyActiveModal(false);
-    window.location.href = "https://bluesky-online-quota.vercel.app";
+    window.location.href = MENU_URL;
   };
 
   const sendOtpCode = () => {
@@ -2775,7 +2777,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* 🌐 網路投保簡易試算版：保費計算／報價留存／我要投保／返回官網 */}
+      {/* 🌐 網路投保簡易試算版：保費計算／報價留存／我要投保／返回選單 */}
       <div className="row g-2 mb-2">
         <div className="col-md-3 col-6">
           <button
@@ -2806,10 +2808,10 @@ export default function App() {
         </div>
         <div className="col-md-3 col-6">
           <a
-            href="https://bluesky-website-delta.vercel.app"
+            href={MENU_URL}
             className="btn btn-outline-dark w-100 fw-bold py-2"
           >
-            返回官網
+            返回選單
           </a>
         </div>
       </div>
@@ -3261,7 +3263,7 @@ export default function App() {
                 </div>
               )}
               <button type="button" className="btn btn-primary w-100 fw-bold mt-2" onClick={closePolicyActiveModal}>
-                返回官網
+                返回選單
               </button>
             </div>
           </div>
