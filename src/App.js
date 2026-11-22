@@ -297,7 +297,24 @@ export default function App() {
   const [payBankAccount, setPayBankAccount] = useState("");
   const [paymentProcessing, setPaymentProcessing] = useState(false);
   const [issuedPolicies, setIssuedPolicies] = useState([]); // [{kind:"CC"|"AC", policyNo}]
-  const [payQuoteId, setPayQuoteId] = useState(""); // 本次投保繳費所用的報價單號（每次按「我要投保」重新產生）
+  const [payQuoteId, setPayQuoteId] = useState("");
+  // 從產險系統 Menu 進入時網址帶 ?sso=（業代代碼憑證）；出單時回傳，帳款檔記錄經辦人／經紀人，沒有則為網投 ec9999
+  const [agentToken] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const t = params.get("sso");
+      if (t) {
+        sessionStorage.setItem("bsk_sso", t);
+        params.delete("sso");
+        const qs = params.toString();
+        window.history.replaceState(null, "", window.location.pathname + (qs ? "?" + qs : "") + window.location.hash);
+        return t;
+      }
+      return sessionStorage.getItem("bsk_sso") || "";
+    } catch (e) {
+      return "";
+    }
+  }); // 本次投保繳費所用的報價單號（每次按「我要投保」重新產生）
 
   const handlePayCardNumberChange = (e) => {
     const digits = e.target.value.replace(/\D/g, "").slice(0, 16);
@@ -400,7 +417,7 @@ export default function App() {
       const res = await fetch(ISSUE_API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" }, // 與 quote-calculate 相同：函式已關閉 Verify JWT
-        body: JSON.stringify({ quoteNo: qid }),
+        body: JSON.stringify({ quoteNo: qid, agentToken }),
       });
       const out = await res.json().catch(() => ({}));
       console.log("issue-policy", paymentMethod, qid, res.status, out);
@@ -420,7 +437,7 @@ export default function App() {
 
   const closePolicyActiveModal = () => {
     setShowPolicyActiveModal(false);
-    window.location.href = "https://bluesky-website-delta.vercel.app";
+    window.location.href = "https://bluesky-online-quota.vercel.app";
   };
 
   const sendOtpCode = () => {
